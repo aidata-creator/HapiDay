@@ -13,7 +13,7 @@ st.write("Upload your documents to extract and append line data to Google Sheets
 
 # --- AUTOMATION CONFIGURATION ---
 # Put your permanent Google Sheet link here
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/YOUR_ACTUAL_SHEET_ID_HERE/edit#gid=0"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1y2ITgmqH9f4-xavbrS550qCDXZ4Bu-ILlaq84Y76zSY/edit#gid=0"
 # ---------------------------------
 
 # --- SECRETS MANAGEMENT ---
