@@ -8,7 +8,7 @@ import gspread
 
 # Page Configuration
 st.set_page_config(page_title="Doc to Google Sheets Automation", layout="centered")
-st.title("📄 Gemini 3.5 Sheet Automation Pipeline")
+st.title("📄 HapiDay Order Automation Pipeline")
 st.write("Fill out the tracking parameters, upload your files, review the data, then click Save.")
 
 # --- AUTOMATION CONFIGURATION ---
