@@ -6,14 +6,14 @@ from PIL import Image
 import google.generativeai as genai
 import gspread
 
-# Page Config
+# Page Configuration
 st.set_page_config(page_title="Doc to Google Sheets Automation", layout="centered")
 st.title("📄 Gemini 3.5 Sheet Automation Pipeline")
-st.write("Enter the metadata metadata below, then upload documents to append them to your Google Sheet.")
+st.write("Fill out the tracking parameters, then drop your receipts/invoices to sync directly to Google Sheets.")
 
 # --- AUTOMATION CONFIGURATION ---
-# Put your permanent Google Sheet link here
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/YOUR_ACTUAL_SHEET_ID_HERE/edit#gid=0"
+# Permanent Google Sheet link using your provided Sheet ID
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1y2ITgmqH9f4-xavbrS550qCDXZ4Bu-ILlaq84Y76zSY/edit#gid=0"
 # ---------------------------------
 
 # --- SECRETS MANAGEMENT ---
@@ -25,13 +25,15 @@ else:
     st.stop()
 # ---------------------------
 
-# Side-by-side user inputs for the person in charge
+# Form prompts for the operator in charge
+st.subheader("📋 Administrative Info Setup")
 col1, col2 = st.columns(2)
 with col1:
-    user_order_date = st.text_input("📅 Order Date (e.g., YYYY-MM-DD or MM/DD/YYYY):")
+    user_order_date = st.text_input("📅 Order Date (e.g., MM/DD/YYYY or YYYY-MM-DD):")
 with col2:
-    user_distributor = st.text_input("🏢 Distributor Name:")
+    user_distributor = st.text_input("🏢 Distributor / Vendor Name:")
 
+st.write("---")
 uploaded_files = st.file_uploader(
     "Upload Document Invoices / Receipts", 
     type=["pdf", "png", "jpg", "jpeg"], 
@@ -45,23 +47,23 @@ def extract_text_from_pdf(pdf_file):
         text += page.extract_text() or ""
     return text
 
-# Process only if inputs are filled out by the operator
 if uploaded_files:
+    # Security gate to force input before running the extraction engine
     if not user_order_date or not user_distributor:
-        st.warning("⚠️ Please enter the Order Date and Distributor Name above before processing.")
+        st.warning("⚠️ Action Required: Please fill out both the **Order Date** and **Distributor Name** fields above before processing.")
     else:
         genai.configure(api_key=api_key)
         
-        # SYSTEM PROMPT: Now strictly focused ONLY on getting the 5 item table variables
+        # SYSTEM PROMPT: Strictly commands the AI to extract ONLY the 5 item list columns
         system_instruction = (
-            "You are a strict line-item extraction engine. Analyze the provided document "
-            "and extract line data items ONLY into these exact 5 columns:\n"
+            "You are a strict item-line extraction engine. Analyze the document provided "
+            "and map out data parameters strictly into a CSV matrix with these exact 5 columns:\n"
             "Quantity, Item, Description, Price, Amount\n\n"
             "Rules:\n"
-            "1. Output must be raw CSV formatting with those 5 columns as headers on line 1.\n"
-            "2. If an item name and its description are grouped together, separate them cleanly.\n"
-            "3. Do not look for dates or distributor headers. Do not include summary totals or metadata.\n"
-            "4. Do not include markdown brackets (```csv) or conversational text."
+            "1. Output must display the raw CSV data formatting with those 5 column headers on line 1.\n"
+            "2. If an item name and its description are combined in the source file, split them into separate columns.\n"
+            "3. Do not attempt to look for generic metadata fields like dates or distributor addresses. Skip all invoice summary totals.\n"
+            "4. Output only raw table lines; do not wrap text outputs in markdown brackets like ```csv."
         )
         
         model = genai.GenerativeModel(
@@ -70,25 +72,25 @@ if uploaded_files:
         )
         
         all_rows = []
-        st.info("Extracting line item rows with Gemini 3.5 Flash...")
+        st.info("Parsing invoice segments using Gemini 3.5 Flash...")
         
         for file in uploaded_files:
             try:
                 if file.type == "application/pdf":
                     raw_text = extract_text_from_pdf(file)
                     if not raw_text.strip():
-                        st.warning(f"⚠️ {file.name} is likely a flat scanned image. Try a PNG or JPEG conversion.")
+                        st.warning(f"⚠️ Scanned page check failed for {file.name}. Try processing as an image instead.")
                         continue
-                    prompt = f"Convert this text layout into the 5-column CSV matrix schema:\n\n{raw_text}"
+                    prompt = f"Extract all row data items matching the 5-column CSV target matrix from this text block:\n\n{raw_text}"
                     response = model.generate_content(prompt)
                 else:
                     img = Image.open(file)
-                    prompt = "Extract all line items from this image layout into the 5-column CSV format table."
+                    prompt = "Extract all individual product line items from this document image array into the 5-column CSV matrix schema."
                     response = model.generate_content([prompt, img])
 
                 csv_output = response.text.strip()
                 
-                # Clean up potential markdown code indicators
+                # Sanitize stray markdown formatting block wrappers
                 if csv_output.startswith("```"):
                     csv_output = csv_output.split("\n", 1)[1]
                 if csv_output.endswith("```"):
@@ -98,39 +100,39 @@ if uploaded_files:
                 if csv_output:
                     df_temp = pd.read_csv(StringIO(csv_output))
                     if not df_temp.empty:
-                        # Enforce standard column validation checking
+                        # Standardize columns dynamically
                         expected_cols = ["Quantity", "Item", "Description", "Price", "Amount"]
                         for col in expected_cols:
                             if col not in df_temp.columns:
                                 df_temp[col] = None
                         df_temp = df_temp[expected_cols]
                         
-                        # Inject the values typed by the person in charge into the structural columns
+                        # Prepend the manually typed administrator tracking inputs into positions 0 and 1
                         df_temp.insert(0, "Distributor", user_distributor)
                         df_temp.insert(0, "Order Date", user_order_date)
                         
                         all_rows.append(df_temp)
             except Exception as e:
-                st.error(f"❌ Error processing {file.name}: {str(e)}")
+                st.error(f"❌ Automation Error handling {file.name}: {str(e)}")
 
         if all_rows:
             final_df = pd.concat(all_rows, ignore_index=True)
-            st.write("📊 **Extracted Data Preview (Ready to Sync):**")
+            st.write("📊 **Processed Master Data Preview:**")
             st.dataframe(final_df)
             
-            # --- WRITE DIRECTLY TO GOOGLE SHEETS ---
+            # --- PUSH MATRIX TO GOOGLE SHEETS BATCH PIPELINE ---
             try:
-                st.info("Connecting and updating Google Sheet database...")
+                st.info("Opening remote connection to Google Sheets database...")
                 gc = gspread.service_account_from_dict(google_creds)
                 sh = gc.open_by_url(SPREADSHEET_URL)
-                worksheet = sh.get_worksheet(0)  # Targets Sheet1
+                worksheet = sh.get_worksheet(0)  # Targeting the first sheet tab
                 
-                # Clean missing fields cleanly
+                # Format NaN placeholders safely before sending data arrays across APIs
                 final_df = final_df.fillna("")
                 data_to_append = final_df.values.tolist()
                 
                 worksheet.append_rows(data_to_append)
-                st.success("🎉 Data successfully appended directly to your Google Sheet!")
+                st.success("🎉 Data successfully aligned and pushed into your Google Sheet log!")
                 
             except Exception as sheet_error:
-                st.error(f"❌ Failed to push data into Google Sheets: {str(sheet_error)}")
+                st.error(f"❌ Connection loss during Spreadsheet update sequence: {str(sheet_error)}")
