@@ -9,10 +9,14 @@ import gspread
 # Page Config
 st.set_page_config(page_title="Doc to Google Sheets Automation", layout="centered")
 st.title("📄 Gemini 3.5 Sheet Automation Pipeline")
-st.write("Extracts Order Date, Distributor, and Item line tables directly into Google Sheets.")
+st.write("Upload your documents to extract and append line data to Google Sheets automatically.")
+
+# --- AUTOMATION CONFIGURATION ---
+# Put your permanent Google Sheet link here
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/YOUR_ACTUAL_SHEET_ID_HERE/edit#gid=0"
+# ---------------------------------
 
 # --- SECRETS MANAGEMENT ---
-# Pulling API keys and Google Credentials from hidden Streamlit Dashboard settings
 if "GEMINI_API_KEY" in st.secrets and "gcp_service_account" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
     google_creds = dict(st.secrets["gcp_service_account"])
@@ -21,8 +25,6 @@ else:
     st.stop()
 # ---------------------------
 
-# Dropdown / URL targeting field for destination tracking
-spreadsheet_url = st.text_input("Enter Destination Google Sheet Link:")
 uploaded_files = st.file_uploader(
     "Upload Document Invoices / Receipts", 
     type=["pdf", "png", "jpg", "jpeg"], 
@@ -36,10 +38,10 @@ def extract_text_from_pdf(pdf_file):
         text += page.extract_text() or ""
     return text
 
-if uploaded_files and spreadsheet_url:
+if uploaded_files:
     genai.configure(api_key=api_key)
     
-    # SYSTEM PROMPT: Updated to dynamically request absolute metadata + table lines
+    # SYSTEM PROMPT: Forces extraction into your exact 7 columns
     system_instruction = (
         "You are an expert data parsing agent. Analyze the provided document "
         "and extract information strictly into a CSV table matching these exact 7 columns:\n"
@@ -57,7 +59,7 @@ if uploaded_files and spreadsheet_url:
     )
     
     all_rows = []
-    st.info("Extracting invoice rows...")
+    st.info("Extracting invoice rows with Gemini 3.5 Flash...")
     
     for file in uploaded_files:
         try:
@@ -75,7 +77,7 @@ if uploaded_files and spreadsheet_url:
 
             csv_output = response.text.strip()
             
-            # Clean structural string format
+            # Clean up potential markdown formatting block wrapper
             if csv_output.startswith("```"):
                 csv_output = csv_output.split("\n", 1)[1]
             if csv_output.endswith("```"):
@@ -102,21 +104,18 @@ if uploaded_files and spreadsheet_url:
         # --- WRITE DIRECTLY TO GOOGLE SHEETS ---
         try:
             st.info("Connecting and updating Google Sheet database...")
-            # Login utilizing service keys
             gc = gspread.service_account_from_dict(google_creds)
-            sh = gc.open_by_url(spreadsheet_url)
-            worksheet = sh.get_worksheet(0) # Targeting sheet index 1 (Sheet1)
+            sh = gc.open_by_url(SPREADSHEET_URL)
+            worksheet = sh.get_worksheet(0)  # Targets the first tab (Sheet1)
             
-            # Convert NaN values safely to empty strings for API stability
+            # Convert missing / NaN entries to clear strings safely
             final_df = final_df.fillna("")
-            # Extract underlying row matrix list
             data_to_append = final_df.values.tolist()
             
-            # Append rows safely below the last active text box row
             worksheet.append_rows(data_to_append)
-            st.success("🎉 Data successfully written directly to Google Sheets!")
+            st.success("🎉 Data successfully appended directly to your Google Sheet!")
             
         except Exception as sheet_error:
             st.error(f"❌ Failed to push data into Google Sheets: {str(sheet_error)}")
 else:
-    st.warning("Provide your Google Sheet link destination and drop your files to execute the process.")
+    st.warning("Please drop your files above to begin automatic extraction.")
