@@ -3,3 +3,4 @@ pandas
 pypdf
 google-generativeai
 pillow
+gspread
